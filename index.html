@@ -1,0 +1,76 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ATLAS</title><link rel="manifest" href="manifest.json"><meta name="theme-color" content="#0f1117">
+<link rel="apple-touch-icon" href="icon-180.png"><meta name="apple-mobile-web-app-capable" content="yes">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+:root{--bg:#0f1117;--c:#181b24;--b:#2a2e3b;--t:#e8eaf0;--m:#8b90a0;--a:#818cf8;--g:#34d399;--r:#f87171}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--t);font:16px system-ui,sans-serif;padding:env(safe-area-inset-top) 0 80px}
+main{max-width:640px;margin:auto;padding:16px}h1{font-size:22px;margin:4px 0 14px}h2{font-size:14px;color:var(--m);margin:18px 0 8px;text-transform:uppercase;letter-spacing:.05em}
+.card{background:var(--c);border:1px solid var(--b);border-radius:12px;padding:12px;margin-bottom:8px;display:flex;gap:10px;align-items:center}
+.card>.g{flex:1;min-width:0}.s{color:var(--m);font-size:13px}.done{text-decoration:line-through;color:var(--m)}
+input,select,textarea,button{font:inherit;color:var(--t);background:var(--c);border:1px solid var(--b);border-radius:10px;padding:10px}
+textarea{width:100%;min-height:90px}.row{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}.row input{flex:1;min-width:90px}
+button{cursor:pointer}.p{background:var(--a);color:#0f1117;border:0;font-weight:600}.x{border:0;background:none;color:var(--r)}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--c);border-top:1px solid var(--b);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;border:0;background:none;border-radius:0;padding:14px 0;color:var(--m);font-size:13px}nav .on{color:var(--a)}
+.big{font-size:20px;font-weight:700}.in{color:var(--g)}.out{color:var(--r)}input[type=checkbox]{width:22px;height:22px}
+</style></head><body><main id="app"></main>
+<nav id="nav"></nav>
+<script>
+// ===== CONFIG: paste your Supabase values here (leave empty = this device only) =====
+const CFG={url:"https://ammhfdtpydtifkutpnud.supabase.co/rest/v1/",key:"sb_publishable_5IREdGa_NbK-ZsKYpm_-HA_2QmIof1I"};
+const $=s=>document.querySelector(s),esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let S=JSON.parse(localStorage.atlas||'{"i":{},"d":[],"l":0}'),view="today",sb=null,user=null,msg="";
+const save=()=>localStorage.atlas=JSON.stringify(S),list=k=>Object.values(S.i).filter(x=>x.kind===k&&!x.del);
+const day=()=>new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10),dt=n=>(+n).toFixed(3)+" DT";
+function mark(id){if(!S.d.includes(id))S.d.push(id);save();sync();render()}
+function put(kind,data,id){id=id||crypto.randomUUID();const o=S.i[id];S.i[id]={id,kind,data:{...(o?o.data:{}),...data},u:Date.now(),del:false};mark(id)}
+function del(id){S.i[id].del=true;S.i[id].u=Date.now();mark(id)}
+const val=id=>$("#"+id).value.trim();
+// ===== SYNC (Supabase, latest edit wins) =====
+async function sync(){if(!sb||!user||!navigator.onLine)return;try{
+ const rows=S.d.map(id=>S.i[id]).filter(Boolean).map(x=>({id:x.id,user_id:user.id,kind:x.kind,data:x.data,updated_at:x.u,deleted:x.del}));
+ if(rows.length){const{error}=await sb.from("items").upsert(rows);if(error)throw error;S.d=[]}
+ const{data,error}=await sb.from("items").select("*").gt("updated_at",S.l);if(error)throw error;
+ let ch=0;for(const r of data){const o=S.i[r.id];if(!o||r.updated_at>o.u){S.i[r.id]={id:r.id,kind:r.kind,data:r.data,u:r.updated_at,del:r.deleted};ch=1}S.l=Math.max(S.l,r.updated_at)}
+ save();if(ch)render();msg="Synced"}catch(e){msg="Sync error: "+e.message}}
+async function auth(up){const e=val("em"),p=val("pw");const r=up?await sb.auth.signUp({email:e,password:p}):await sb.auth.signInWithPassword({email:e,password:p});
+ if(r.error)msg=r.error.message;else if(r.data.session){user=r.data.session.user;startRT();sync()}else msg="Check your email to confirm, then sign in";render()}
+function startRT(){sb.channel("a").on("postgres_changes",{event:"*",schema:"public",table:"items"},sync).subscribe()}
+// ===== ACTIONS =====
+const addTask=()=>{if(val("tt")){put("task",{title:val("tt"),due:val("td"),done:false})}};
+const tog=id=>put("task",{done:!S.i[id].data.done},id);
+const addHabit=()=>{if(val("hn"))put("habit",{name:val("hn"),days:[]})};
+function chk(id){let d=S.i[id].data.days||[],t=day();put("habit",{days:d.includes(t)?d.filter(x=>x!=t):[...d,t]},id)}
+function streak(d){let n=0,c=new Date(),k=x=>new Date(x.getTime()-x.getTimezoneOffset()*6e4).toISOString().slice(0,10);if(!d.includes(k(c)))c.setDate(c.getDate()-1);while(d.includes(k(c))){n++;c.setDate(c.getDate()-1)}return n}
+const addTx=()=>{const a=parseFloat(val("ma").replace(",","."));if(a>0)put("tx",{amt:a,type:val("mt"),cat:val("mc")||"General",date:day()})};
+const addNote=()=>{if(val("nt")||val("nb"))put("note",{title:val("nt"),body:val("nb")})};
+const jr=()=>put("note",{title:"Journal "+day(),body:val("jb"),j:1},"j"+day());
+// ===== VIEWS =====
+const V={
+today(){const t=day(),tk=list("task").filter(x=>!x.data.done&&(!x.data.due||x.data.due<=t)),hb=list("habit"),m=t.slice(0,7),sp=list("tx").filter(x=>x.data.type=="out"&&x.data.date.startsWith(m)).reduce((a,x)=>a+x.data.amt,0),j=S.i["j"+t];
+ return`<h1>Today</h1><div class="card"><div class="g"><div class="s">Spent this month</div><div class="big out">${dt(sp)}</div></div></div>
+ <h2>Tasks due</h2>${tk.map(x=>`<div class="card"><input type="checkbox" onchange="tog('${x.id}')"><div class="g">${esc(x.data.title)}</div></div>`).join("")||'<div class="s">Nothing due 🎉</div>'}
+ <h2>Habits</h2>${hb.map(x=>`<div class="card"><input type="checkbox" ${x.data.days.includes(t)?"checked":""} onchange="chk('${x.id}')"><div class="g">${esc(x.data.name)}<div class="s">🔥 ${streak(x.data.days)} day streak</div></div></div>`).join("")||'<div class="s">No habits yet</div>'}
+ <h2>Journal</h2><textarea id="jb" placeholder="How was today?" onchange="jr()">${esc(j?j.data.body:"")}</textarea>`},
+tasks(){const a=list("task").sort((x,y)=>(x.data.done-y.data.done)||(x.data.due||"9").localeCompare(y.data.due||"9"));
+ return`<h1>Tasks</h1><div class="row"><input id="tt" placeholder="New task"><input id="td" type="date"><button class="p" onclick="addTask()">Add</button></div>
+ ${a.map(x=>`<div class="card"><input type="checkbox" ${x.data.done?"checked":""} onchange="tog('${x.id}')"><div class="g ${x.data.done?"done":""}">${esc(x.data.title)}<div class="s">${esc(x.data.due)}</div></div><button class="x" onclick="del('${x.id}')">✕</button></div>`).join("")}`},
+habits(){const t=day();return`<h1>Habits</h1><div class="row"><input id="hn" placeholder="New habit"><button class="p" onclick="addHabit()">Add</button></div>
+ ${list("habit").map(x=>`<div class="card"><input type="checkbox" ${x.data.days.includes(t)?"checked":""} onchange="chk('${x.id}')"><div class="g">${esc(x.data.name)}<div class="s">🔥 ${streak(x.data.days)} streak · ${x.data.days.length} total</div></div><button class="x" onclick="del('${x.id}')">✕</button></div>`).join("")}`},
+money(){const a=list("tx").sort((x,y)=>y.u-x.u),m=day().slice(0,7),f=ty=>a.filter(x=>x.data.type==ty&&x.data.date.startsWith(m)).reduce((s,x)=>s+x.data.amt,0);
+ return`<h1>Money</h1><div class="card"><div class="g"><div class="s">This month</div><div class="in">+ ${dt(f("in"))}</div><div class="out">− ${dt(f("out"))}</div><div class="big">${dt(f("in")-f("out"))}</div></div></div>
+ <div class="row"><select id="mt"><option value="out">Expense</option><option value="in">Income</option></select><input id="ma" type="number" step="0.001" placeholder="Amount DT"><input id="mc" placeholder="Category"><button class="p" onclick="addTx()">Add</button></div>
+ ${a.map(x=>`<div class="card"><div class="g">${esc(x.data.cat)}<div class="s">${x.data.date}</div></div><b class="${x.data.type}">${x.data.type=="in"?"+":"−"}${dt(x.data.amt)}</b><button class="x" onclick="del('${x.id}')">✕</button></div>`).join("")}`},
+notes(){return`<h1>Notes</h1><div class="row"><input id="nt" placeholder="Title"></div><textarea id="nb" placeholder="Write..."></textarea><div class="row" style="margin-top:8px"><button class="p" onclick="addNote()">Save note</button></div>
+ ${list("note").sort((x,y)=>y.u-x.u).map(x=>`<div class="card" style="align-items:flex-start"><div class="g"><b>${esc(x.data.title)}</b><div class="s" style="white-space:pre-wrap">${esc(x.data.body)}</div></div><button class="x" onclick="del('${x.id}')">✕</button></div>`).join("")}`},
+set(){return`<h1>Settings</h1>${!sb?'<div class="card s">Local mode. Add your Supabase URL and key in index.html (CFG) to enable sync.</div>':user?`<div class="card"><div class="g">${esc(user.email)}<div class="s">${esc(msg)}</div></div><button onclick="sb.auth.signOut();user=null;render()">Sign out</button></div><button class="p" onclick="sync()">Sync now</button>`:`<div class="row"><input id="em" type="email" placeholder="Email"><input id="pw" type="password" placeholder="Password"></div><div class="row"><button class="p" onclick="auth(0)">Sign in</button><button onclick="auth(1)">Create account</button></div><div class="s">${esc(msg)}</div>`}
+ <h2>Backup</h2><button onclick="exp()">Export data (JSON)</button>`}};
+function exp(){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(S.i)],{type:"application/json"}));a.download="atlas-backup.json";a.click()}
+const tabs=[["today","Today"],["tasks","Tasks"],["habits","Habits"],["money","Money"],["notes","Notes"],["set","⚙"]];
+function render(){const f=document.activeElement&&document.activeElement.tagName=="TEXTAREA"&&document.activeElement.id=="jb";if(f)return;
+ $("#app").innerHTML=V[view]();$("#nav").innerHTML=tabs.map(([k,l])=>`<button class="${k==view?"on":""}" onclick="view='${k}';render()">${l}</button>`).join("")}
+(async()=>{if(CFG.url&&CFG.key&&window.supabase){sb=supabase.createClient(CFG.url,CFG.key);const{data}=await sb.auth.getSession();if(data.session){user=data.session.user;startRT();sync()}}
+ render();addEventListener("online",sync);if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js")})();
+</script></body></html>
